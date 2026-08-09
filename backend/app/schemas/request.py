@@ -16,7 +16,7 @@ class BloodRequestBase(BaseModel):
 
 
 class BloodRequestCreate(BloodRequestBase):
-    requester_id: str
+    requester_id: str | None = None
 
 
 class BloodRequestUpdate(BaseModel):

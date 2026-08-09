@@ -9,6 +9,9 @@ class Settings(BaseSettings):
     API_V1_STR: str = "/api/v1"
     DEBUG: bool = True
     SECRET_KEY: str = "dev_secret_key_change_in_production"
+    JWT_SECRET_KEY: str = "dev_jwt_secret_key_change_in_production"
+    JWT_ALGORITHM: str = "HS256"
+    ACCESS_TOKEN_EXPIRE_MINUTES: int = 60 * 24 * 7  # 7 days
 
     POSTGRES_SERVER: str = "localhost"
     POSTGRES_PORT: int = 5432

@@ -23,7 +23,21 @@ class UserBase(BaseModel):
 
 
 class UserCreate(UserBase):
-    pass
+    password: str = Field(..., min_length=8, max_length=100, example="Password123!")
+
+
+class UserLogin(BaseModel):
+    email: EmailStr = Field(..., example="arjun@example.com")
+    password: str = Field(..., example="Password123!")
+
+
+class Token(BaseModel):
+    access_token: str
+    token_type: str = "bearer"
+
+
+class TokenPayload(BaseModel):
+    sub: str | None = None
 
 
 class UserUpdate(BaseModel):
@@ -31,6 +45,7 @@ class UserUpdate(BaseModel):
     email: EmailStr | None = None
     phone: str | None = None
     role: UserRole | None = None
+    password: str | None = Field(None, min_length=8, max_length=100)
 
     @field_validator("phone")
     @classmethod
@@ -45,6 +60,7 @@ class UserUpdate(BaseModel):
 
 class UserResponse(UserBase):
     id: str
+    is_active: bool = True
     created_at: datetime
     updated_at: datetime
 

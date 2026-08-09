@@ -1,23 +1,34 @@
 from typing import List, Optional
-from fastapi import APIRouter, Depends, Query, status
+from fastapi import APIRouter, Depends, Query, HTTPException, status
 from sqlalchemy.orm import Session
 from sqlalchemy import select
-from app.api.deps import get_db
+
+from app.api.deps import get_db, get_current_active_user
 from app.schemas.donor import DonorCreate, DonorResponse, FrontendDonorDTO
 from app.services.donor_service import DonorService
 from app.models.user import User
+from app.core.enums import UserRole
 from app.core.errors import NotFoundError, AppException
 
 router = APIRouter()
 
 
 @router.post("", response_model=DonorResponse, status_code=status.HTTP_201_CREATED)
-def create_donor_profile(donor_in: DonorCreate, db: Session = Depends(get_db)):
-    """Creates a new donor profile associated with a user."""
-    # Verify user exists
-    user = db.scalar(select(User).where(User.id == donor_in.user_id))
-    if not user:
-        raise NotFoundError("User", donor_in.user_id)
+def create_donor_profile(
+    donor_in: DonorCreate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
+):
+    """Creates a new donor profile associated with the current authenticated user."""
+    # Ensure user is creating profile for self unless Admin
+    target_user_id = current_user.id
+    if donor_in.user_id and donor_in.user_id != current_user.id and current_user.role != UserRole.ADMIN:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Forbidden: Cannot create a donor profile for another user",
+        )
+    if not donor_in.user_id:
+        donor_in.user_id = target_user_id
 
     # Verify user doesn't already have a donor profile
     existing = DonorService.get_by_user_id(db, donor_in.user_id)
@@ -74,6 +85,13 @@ def toggle_availability(
     donor_id: str,
     is_available: bool = Query(..., description="Set availability flag"),
     db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
 ):
-    """Toggles donor availability status."""
+    """Toggles donor availability status (Donor owner or Admin only)."""
+    donor = DonorService.get_by_id(db, donor_id)
+    if donor.user_id != current_user.id and current_user.role != UserRole.ADMIN:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Forbidden: Cannot modify another donor's availability",
+        )
     return DonorService.update_availability(db, donor_id, is_available)

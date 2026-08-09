@@ -13,7 +13,7 @@ class DonorBase(BaseModel):
 
 
 class DonorCreate(DonorBase):
-    user_id: str
+    user_id: str | None = None
 
 
 class DonorUpdate(BaseModel):
