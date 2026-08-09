@@ -1,0 +1,20 @@
+# Environment & Virtual Environments
+backend/.venv/
+backend/.env
+.venv/
+.env
+
+# Database files
+backend/bloodbond.db
+*.db
+*.sqlite3
+
+# Python bytecode & cache
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Test & Lint caches
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
