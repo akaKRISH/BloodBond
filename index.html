@@ -2427,6 +2427,38 @@
                     id="r-hospital"
                   />
                 </div>
+                <div class="form-group">
+                  <label class="form-label">City</label>
+                  <input
+                    type="text"
+                    class="form-input"
+                    placeholder="Delhi"
+                    value="Delhi"
+                    id="r-city"
+                  />
+                </div>
+                <div class="form-group">
+                  <label class="form-label">Latitude</label>
+                  <input
+                    type="number"
+                    step="any"
+                    class="form-input"
+                    placeholder="28.5672"
+                    value="28.5672"
+                    id="r-lat"
+                  />
+                </div>
+                <div class="form-group">
+                  <label class="form-label">Longitude</label>
+                  <input
+                    type="number"
+                    step="any"
+                    class="form-input"
+                    placeholder="77.2100"
+                    value="77.2100"
+                    id="r-lng"
+                  />
+                </div>
                 <div class="form-group full">
                   <label class="form-label">Additional Notes</label>
                   <textarea
@@ -2441,6 +2473,7 @@
               <button class="form-submit" onclick="submitForm('request')">
                 🚨 Submit Blood Request
               </button>
+              <div id="request-match-results" style="margin-top: 1.5rem; display: none;"></div>
             </div>
           </div>
         </div>
@@ -3190,18 +3223,130 @@
           if (document.getElementById("d-email")) document.getElementById("d-email").value = "";
           if (document.getElementById("d-password")) document.getElementById("d-password").value = "";
           document.getElementById("d-city").value = "";
-        } else {
-          const name = document.getElementById("r-name").value;
-          const phone = document.getElementById("r-phone").value;
-          if (!name || !phone) {
-            alert("Please fill in Patient Name and Contact Number.");
-          } else {
+        } else if (type === "request") {
+          const name = document.getElementById("r-name").value.trim();
+          const phone = document.getElementById("r-phone").value.trim();
+          const selectedBT = document.querySelector("#reqBT .selected")?.textContent.trim() || "A+";
+          const units = parseInt(document.getElementById("r-units").value) || 1;
+          const urgencyRaw = document.getElementById("r-urgency").value;
+          let urgency = "URGENT";
+          if (urgencyRaw.includes("Critical")) urgency = "CRITICAL";
+          else if (urgencyRaw.includes("Scheduled")) urgency = "SCHEDULED";
+
+          const hospital = document.getElementById("r-hospital").value.trim();
+          const city = (document.getElementById("r-city")?.value || "Delhi").trim();
+          const lat = parseFloat(document.getElementById("r-lat")?.value) || 28.5672;
+          const lng = parseFloat(document.getElementById("r-lng")?.value) || 77.2100;
+          const notes = document.getElementById("r-notes") ? document.getElementById("r-notes").value.trim() : "";
+
+          if (!name || !hospital || !city) {
+            alert("Please fill in Patient Name, Hospital / Location, and City.");
+            return;
+          }
+
+          const token = getAuthToken();
+          if (!token) {
+            showToast("Authentication Required 🔒", "Please log in or register to submit a blood request.");
+            return;
+          }
+
+          try {
+            const reqRes = await fetch(`${API_BASE_URL}/api/v1/requests`, {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+                Authorization: `Bearer ${token}`,
+              },
+              body: JSON.stringify({
+                patient_name: name,
+                blood_group: selectedBT,
+                units_needed: units,
+                urgency: urgency,
+                hospital_name: hospital,
+                city: city,
+                latitude: lat,
+                longitude: lng,
+                additional_notes: notes || null,
+              }),
+            });
+
+            const reqData = await reqRes.json();
+            if (!reqRes.ok) {
+              showToast("Request Failed", reqData.detail || "Could not submit blood request.");
+              return;
+            }
+
+            const requestId = reqData.id;
+
+            const matchRes = await fetch(`${API_BASE_URL}/api/v1/requests/${requestId}/match?radius_km=10.0`, {
+              method: "POST",
+              headers: {
+                Authorization: `Bearer ${token}`,
+              },
+            });
+
+            if (matchRes.ok) {
+              const matches = await matchRes.json();
+              renderMatchResults(matches, requestId);
+              showToast("Request Created & Matched! 🩸", `Found ${matches.length} matching donor(s) within 10 km.`);
+            } else {
+              const matchErr = await matchRes.json();
+              showToast("Matching Failed", matchErr.detail || "Could not trigger matching engine.");
+            }
+          } catch (err) {
             showToast(
               "Request Sent! 🚨",
               "Donors in your area have been alerted immediately.",
             );
           }
         }
+      }
+
+      function renderMatchResults(matches, requestId) {
+        const container = document.getElementById("request-match-results");
+        if (!container) return;
+        container.style.display = "block";
+        if (!matches || matches.length === 0) {
+          container.innerHTML = `
+            <div style="padding: 1.2rem; background: rgba(192, 57, 43, 0.1); border: 1px solid var(--border); border-radius: 12px; text-align: center; color: var(--text);">
+              <p style="font-weight: 600; color: var(--red-glow); margin-bottom: 0.3rem;">No Matching Donors Found</p>
+              <p style="font-size: 0.85rem; color: var(--muted);">No available donors matching required blood type within 10 km.</p>
+            </div>
+          `;
+          return;
+        }
+        container.innerHTML = `
+          <div style="margin-bottom: 1rem;">
+            <h4 style="color: var(--white); font-size: 1.1rem; margin-bottom: 0.25rem;">Matched Donors (${matches.length})</h4>
+            <p style="font-size: 0.82rem; color: var(--muted);">Direct donor matches based on blood compatibility and geo-distance within 10 km.</p>
+          </div>
+          <div style="display: flex; flex-direction: column; gap: 0.8rem;">
+            ${matches.map(m => {
+              const donor = m.donor || {};
+              const bg = donor.blood_group || "Compatible";
+              const dist = typeof m.distance_km === "number" ? m.distance_km.toFixed(1) : "?";
+              const isAvail = donor.is_available !== false;
+              const status = m.status || "PENDING";
+              const city = donor.city || "Nearby";
+              return `
+                <div class="donor-card" style="padding: 1rem;">
+                  <div class="donor-header" style="margin-bottom: 0.5rem;">
+                    <div class="donor-avatar">${bg}</div>
+                    <div>
+                      <div class="donor-name">Compatible Donor (${bg})</div>
+                      <div class="donor-location">📍 ${city} · <strong>${dist} km away</strong></div>
+                    </div>
+                  </div>
+                  <div class="donor-meta">
+                    <span class="badge">${bg}</span>
+                    <span class="badge ${isAvail ? 'badge-available' : 'badge-unavailable'}">${isAvail ? '✓ Available' : '✗ Unavailable'}</span>
+                    <span class="badge" style="background: rgba(192, 57, 43, 0.15); border-color: var(--border); color: var(--red-glow);">Match Status: ${status}</span>
+                  </div>
+                </div>
+              `;
+            }).join("")}
+          </div>
+        `;
       }
 
       // ── TOAST
