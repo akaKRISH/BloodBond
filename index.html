@@ -2146,9 +2146,42 @@
               </button>
               <button
                 class="form-tab"
+                onclick="switchForm('login-form', this)"
+              >
+                🔐 Log In
+              </button>
+              <button
+                class="form-tab"
                 onclick="switchForm('request-form', this)"
               >
                 🚨 I Need Blood
+              </button>
+            </div>
+
+            <!-- LOGIN FORM -->
+            <div class="form-card form-panel" id="login-form">
+              <div class="form-grid">
+                <div class="form-group full">
+                  <label class="form-label">Email Address</label>
+                  <input
+                    type="email"
+                    class="form-input"
+                    placeholder="arjun@example.com"
+                    id="l-email"
+                  />
+                </div>
+                <div class="form-group full">
+                  <label class="form-label">Password</label>
+                  <input
+                    type="password"
+                    class="form-input"
+                    placeholder="At least 8 characters"
+                    id="l-password"
+                  />
+                </div>
+              </div>
+              <button class="form-submit" onclick="submitForm('login')">
+                🔐 Log In
               </button>
             </div>
 
@@ -2180,6 +2213,15 @@
                     class="form-input"
                     placeholder="arjun@email.com"
                     id="d-email"
+                  />
+                </div>
+                <div class="form-group">
+                  <label class="form-label">Password</label>
+                  <input
+                    type="password"
+                    class="form-input"
+                    placeholder="Min 8 characters"
+                    id="d-password"
                   />
                 </div>
                 <div class="form-group">
@@ -2952,46 +2994,206 @@
         event.target.classList.add("active");
       }
 
-      // ── FORM SUBMIT
-      function submitForm(type) {
-        let valid = true;
-        if (type === "donor") {
-          const name = document.getElementById("d-name").value;
-          const phone = document.getElementById("d-phone").value;
-          const city = document.getElementById("d-city").value;
-          if (!name || !phone || !city) {
-            valid = false;
-            alert("Please fill in Name, Phone, and City.");
+      // ── API CONFIG & AUTH HELPERS
+      const API_BASE_URL = "http://127.0.0.1:8000";
+
+      function getAuthToken() {
+        return localStorage.getItem("bloodbond_token");
+      }
+
+      function setAuthToken(token) {
+        if (token) {
+          localStorage.setItem("bloodbond_token", token);
+        } else {
+          localStorage.removeItem("bloodbond_token");
+        }
+      }
+
+      function clearAuth() {
+        localStorage.removeItem("bloodbond_token");
+        localStorage.removeItem("bloodbond_user");
+        updateAuthUI(null);
+      }
+
+      function updateAuthUI(user) {
+        const ctaBtn = document.querySelector(".nav-cta");
+        if (ctaBtn) {
+          if (user && user.name) {
+            const firstName = user.name.split(" ")[0];
+            ctaBtn.textContent = `👤 ${firstName} (Logout)`;
+            ctaBtn.href = "#";
+            ctaBtn.onclick = (e) => {
+              e.preventDefault();
+              clearAuth();
+              showToast("Logged Out", "You have been logged out.");
+            };
           } else {
-            donors.unshift({
-              name,
-              city,
-              bt:
-                document.querySelector("#donorBT .selected")?.textContent ||
-                "O+",
-              avail: true,
-              lastDonated: "Just now",
-              initials: name
-                .split(" ")
-                .map((w) => w[0])
-                .join("")
-                .toUpperCase()
-                .slice(0, 2),
-            });
-            renderDonors(donors);
-            showToast(
-              "Registered!",
-              `Welcome, ${name}! You are now a BloodBond donor.`,
-            );
-            document.getElementById("d-name").value = "";
-            document.getElementById("d-phone").value = "";
-            document.getElementById("d-city").value = "";
+            ctaBtn.textContent = "Donate Now";
+            ctaBtn.href = "#register";
+            ctaBtn.onclick = null;
           }
+        }
+      }
+
+      async function initAuth() {
+        const token = getAuthToken();
+        if (!token) return;
+        try {
+          const res = await fetch(`${API_BASE_URL}/api/v1/users/me`, {
+            headers: { Authorization: `Bearer ${token}` },
+          });
+          if (res.ok) {
+            const user = await res.json();
+            localStorage.setItem("bloodbond_user", JSON.stringify(user));
+            updateAuthUI(user);
+          } else {
+            clearAuth();
+          }
+        } catch (err) {
+          const cachedUser = localStorage.getItem("bloodbond_user");
+          if (cachedUser) {
+            try {
+              updateAuthUI(JSON.parse(cachedUser));
+            } catch (e) {}
+          }
+        }
+      }
+      window.addEventListener("DOMContentLoaded", initAuth);
+
+      // ── FORM SUBMIT
+      async function submitForm(type) {
+        if (type === "login") {
+          const email = document.getElementById("l-email").value.trim();
+          const password = document.getElementById("l-password").value;
+          if (!email || !password) {
+            alert("Please fill in Email and Password.");
+            return;
+          }
+          try {
+            const res = await fetch(`${API_BASE_URL}/api/v1/auth/login/json`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ email, password }),
+            });
+            const data = await res.json();
+            if (!res.ok) {
+              showToast("Login Failed", data.detail || "Incorrect email or password.");
+              return;
+            }
+            setAuthToken(data.access_token);
+
+            const userRes = await fetch(`${API_BASE_URL}/api/v1/users/me`, {
+              headers: { Authorization: `Bearer ${data.access_token}` },
+            });
+            if (userRes.ok) {
+              const user = await userRes.json();
+              localStorage.setItem("bloodbond_user", JSON.stringify(user));
+              updateAuthUI(user);
+              showToast("Welcome Back! 🩸", `Logged in as ${user.name}`);
+            }
+          } catch (err) {
+            showToast("Backend Unavailable", "Could not connect to FastAPI server at http://127.0.0.1:8000.");
+          }
+          return;
+        }
+
+        if (type === "donor") {
+          const name = document.getElementById("d-name").value.trim();
+          const phone = document.getElementById("d-phone").value.trim();
+          const email = document.getElementById("d-email") ? document.getElementById("d-email").value.trim() : "";
+          const password = document.getElementById("d-password") ? document.getElementById("d-password").value : "";
+          const city = document.getElementById("d-city").value.trim();
+          const selectedBT = document.querySelector("#donorBT .selected")?.textContent.trim() || "O+";
+          const lastDonated = document.getElementById("d-last")?.value || null;
+
+          if (!name || !phone || !city) {
+            alert("Please fill in Name, Phone, and City.");
+            return;
+          }
+
+          if (email && password) {
+            try {
+              // 1. Register User on FastAPI
+              const regRes = await fetch(`${API_BASE_URL}/api/v1/auth/register`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                  name,
+                  email,
+                  phone,
+                  password,
+                  role: "DONOR",
+                }),
+              });
+              const regData = await regRes.json();
+              if (!regRes.ok) {
+                showToast("Registration Failed", regData.detail || "Could not register user.");
+                return;
+              }
+
+              // 2. Login User
+              const loginRes = await fetch(`${API_BASE_URL}/api/v1/auth/login/json`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ email, password }),
+              });
+
+              if (loginRes.ok) {
+                const loginData = await loginRes.json();
+                setAuthToken(loginData.access_token);
+                localStorage.setItem("bloodbond_user", JSON.stringify(regData));
+                updateAuthUI(regData);
+
+                // 3. Create Donor Profile on FastAPI
+                await fetch(`${API_BASE_URL}/api/v1/donors`, {
+                  method: "POST",
+                  headers: {
+                    "Content-Type": "application/json",
+                    Authorization: `Bearer ${loginData.access_token}`,
+                  },
+                  body: JSON.stringify({
+                    blood_group: selectedBT,
+                    city: city,
+                    latitude: 28.6139,
+                    longitude: 77.2090,
+                    is_available: true,
+                    last_donation_date: lastDonated || null,
+                  }),
+                });
+              }
+            } catch (err) {
+              showToast("Backend Unavailable", "Registered locally. Start backend at 127.0.0.1:8000 for server sync.");
+            }
+          }
+
+          // Local UI Update
+          donors.unshift({
+            name,
+            city,
+            bt: selectedBT,
+            avail: true,
+            lastDonated: "Just now",
+            initials: name
+              .split(" ")
+              .map((w) => w[0])
+              .join("")
+              .toUpperCase()
+              .slice(0, 2),
+          });
+          renderDonors(donors);
+          showToast(
+            "Registered! 🩸",
+            `Welcome, ${name}! You are now a BloodBond donor.`,
+          );
+          document.getElementById("d-name").value = "";
+          document.getElementById("d-phone").value = "";
+          if (document.getElementById("d-email")) document.getElementById("d-email").value = "";
+          if (document.getElementById("d-password")) document.getElementById("d-password").value = "";
+          document.getElementById("d-city").value = "";
         } else {
           const name = document.getElementById("r-name").value;
           const phone = document.getElementById("r-phone").value;
           if (!name || !phone) {
-            valid = false;
             alert("Please fill in Patient Name and Contact Number.");
           } else {
             showToast(
