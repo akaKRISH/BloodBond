@@ -29,7 +29,20 @@ class Settings(BaseSettings):
         "http://localhost:5500",
         "http://127.0.0.1:5500",
         "http://localhost:3000",
+        "https://akakrish.github.io",
     ]
+
+    @field_validator("BACKEND_CORS_ORIGINS", mode="before")
+    @classmethod
+    def assemble_cors_origins(cls, v: Union[str, List[str]]) -> List[str]:
+        if isinstance(v, str) and not v.startswith("["):
+            return [i.strip() for i in v.split(",")]
+        elif isinstance(v, (list, str)):
+            import json
+            if isinstance(v, str):
+                return json.loads(v)
+            return v
+        raise ValueError(v)
 
     model_config = SettingsConfigDict(
         env_file=".env",
